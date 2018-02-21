@@ -13,6 +13,10 @@ typedef union _block {
 } Block;
 // the key will be a global variable
 Block KEY;
+// global round number, this is reset at the beginning of the convert function
+int Round;
+// K schedule addition piece, this will change after every access to K()
+int KShift;
 // the mode will affect how the K function works
 enum MODE {encrypt, decrypt};
 enum MODE CurrentMode;
@@ -52,15 +56,22 @@ uint16_t concat(uint8_t a, uint8_t b) {
     return (a << 8) | (b);
 }
 
-uint8_t K(unsigned int x) {
+uint8_t K() {
     uint8_t subkey;
     if (CurrentMode == encrypt) {
         // left rotate, then get the byte
         KEY.value = lcs(KEY.value,1);
+        unsigned int x = 4*Round + KShift;
         subkey = KEY.byte[x % 8];
+        // KShift increases by 1 for next time K() is called
+        KShift = (KShift+1) % 4;
     }
     else if (CurrentMode == decrypt) {
+        // KShift decreases by 1 before x is calculated
+        KShift = (KShift+3) % 4;
+        printf("KShift: %i\n",KShift);
         // get byte, then right rotate
+        unsigned int x = 4*(15-Round) + KShift;
         subkey = KEY.byte[x % 8];
         KEY.value = rcs(KEY.value,1);
     }
@@ -72,34 +83,34 @@ uint8_t K(unsigned int x) {
     return subkey;
 }
 
-uint16_t G(uint16_t w, unsigned int round) {
+uint16_t G(uint16_t w) {
     uint8_t g1 = (uint8_t) (w >> 8);
     printf("g1: 0x%" PRIx8 "\n",g1);
     uint8_t g2 = (uint8_t) (w & 0x00ff);
     printf("g2: 0x%" PRIx8 "\n",g2);
-    uint8_t g3 = ftable[g2 ^ K(4*round)] ^ g1;
+    uint8_t g3 = ftable[g2 ^ K()] ^ g1;
     printf("g3: 0x%" PRIx8 "\n",g3);
-    uint8_t g4 = ftable[g3 ^ K(4*round+1)] ^ g2;
+    uint8_t g4 = ftable[g3 ^ K()] ^ g2;
     printf("g4: 0x%" PRIx8 "\n",g4);
-    uint8_t g5 = ftable[g4 ^ K(4*round+2)] ^ g3;
+    uint8_t g5 = ftable[g4 ^ K()] ^ g3;
     printf("g5: 0x%" PRIx8 "\n",g5);
-    uint8_t g6 = ftable[g5 ^ K(4*round+3)] ^ g4;
+    uint8_t g6 = ftable[g5 ^ K()] ^ g4;
     printf("g6: 0x%" PRIx8 "\n",g6);
     return concat(g5,g6);
 }
 
-void F(uint16_t r0, uint16_t r1, unsigned int round, uint16_t* f0, uint16_t* f1) {
-    uint16_t t0 = G(r0,round);
-    uint16_t t1 = G(r1,round);
+void F(uint16_t r0, uint16_t r1, uint16_t* f0, uint16_t* f1) {
+    uint16_t t0 = G(r0);
+    uint16_t t1 = G(r1);
     printf("t0: 0x%" PRIx16 "\n",t0);
     printf("t1: 0x%" PRIx16 "\n",t1);
-    uint8_t subk1 = K(4*round);
-    uint8_t subk2 = K(4*round+1);
+    uint8_t subk1 = K();
+    uint8_t subk2 = K();
     uint32_t temp1 = (t0) + (2*t1) + concat(subk1,subk2);
     printf("temp1: 0x%" PRIx32 "\n",temp1);
     (*f0) = temp1 % 0x10000; // mod 2^16
-    uint8_t subk3 = K(4*round+2);
-    uint8_t subk4 = K(4*round+3);
+    uint8_t subk3 = K();
+    uint8_t subk4 = K();
     uint32_t temp2 = (2*t0) + (t1) + concat(subk3,subk4);
     printf("temp2: 0x%" PRIx32 "\n",temp2);
     (*f1) = temp2 % 0x10000; // mod 2^16
@@ -113,10 +124,11 @@ uint64_t convert(uint64_t block) {
     // set up for the while loop
     uint16_t f0 = 0x0000;
     uint16_t f1 = 0x0000;
-    unsigned int round = 0;
-    while (round < 1) {
-        printf("Beginning of Round: %i\n",round);
-        F(R.word[3],R.word[2],round,&f0,&f1);
+    Round = 0;
+    KShift = 0;
+    while (Round < 2) {
+        printf("Beginning of Round: %i\n",Round);
+        F(R.word[3],R.word[2],&f0,&f1);
         // set up R for the next round
         Block nextR;
         nextR.word[3] = R.word[1] ^ f0;
@@ -125,8 +137,8 @@ uint64_t convert(uint64_t block) {
         nextR.word[0] = R.word[2];
         R.value = nextR.value;
         printf("Block: 0x%" PRIx64 "\n",R.value);
-        printf("End of Round: %i\n\n",round);
-        round++;
+        printf("End of Round: %i\n\n",Round);
+        Round++;
     }
     // undo the last swap
     Block y;
@@ -167,9 +179,6 @@ int main(int argc, char** argv) {
     KEY.value = 0xabcdef0123456789;
     uint64_t pt = 0xb3db233bb437c713;
     CurrentMode = decrypt;
-    // for (int i = 0;i<12;i++) {
-        // printf("subkey[%i]: 0x%" PRIx8 "\n",i,K(4*0+(i%4)));
-    // }
     uint64_t ct = convert(pt);
-    //printf("Ciphertext: 0x%" PRIx64 "\n",ct);
+    //printf("Plaintext: 0x%" PRIx64 "\n",ct);
 }
