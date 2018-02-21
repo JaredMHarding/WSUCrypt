@@ -1,6 +1,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <inttypes.h>
+#define SUBKEYARRAYSIZE 12
 
 // THANK GOD FOR UNIONS
 // iterating through the word and byte arrays 0..4 and 0..8
@@ -13,6 +14,9 @@ typedef union _block {
 } Block;
 // the key will be a global variable
 Block KEY;
+//global array to hold a round of subkeys
+uint8_t Subkey[SUBKEYARRAYSIZE];
+int SKIndex;
 // global round number, this is reset at the beginning of the convert function
 int Round;
 // K schedule addition piece, this will change after every access to K()
@@ -83,18 +87,35 @@ uint8_t K() {
     return subkey;
 }
 
+void generateSubkeys() {
+    if (CurrentMode == encrypt) {
+        for (int i = 0;i<SUBKEYARRAYSIZE;i++) {
+            Subkey[i] = K();
+        }
+    }
+    else if (CurrentMode == decrypt) {
+        for (int i = SUBKEYARRAYSIZE-1;i>=0;i--) {
+            Subkey[i] = K();
+        }
+    }
+    else {// something went wrong
+        fprintf(stderr,"Error: CurrentMode was not defined\n");
+        exit(1);
+    }
+}
+
 uint16_t G(uint16_t w) {
     uint8_t g1 = (uint8_t) (w >> 8);
     printf("g1: 0x%" PRIx8 "\n",g1);
     uint8_t g2 = (uint8_t) (w & 0x00ff);
     printf("g2: 0x%" PRIx8 "\n",g2);
-    uint8_t g3 = ftable[g2 ^ K()] ^ g1;
+    uint8_t g3 = ftable[g2 ^ Subkey[SKIndex++]] ^ g1;
     printf("g3: 0x%" PRIx8 "\n",g3);
-    uint8_t g4 = ftable[g3 ^ K()] ^ g2;
+    uint8_t g4 = ftable[g3 ^ Subkey[SKIndex++]] ^ g2;
     printf("g4: 0x%" PRIx8 "\n",g4);
-    uint8_t g5 = ftable[g4 ^ K()] ^ g3;
+    uint8_t g5 = ftable[g4 ^ Subkey[SKIndex++]] ^ g3;
     printf("g5: 0x%" PRIx8 "\n",g5);
-    uint8_t g6 = ftable[g5 ^ K()] ^ g4;
+    uint8_t g6 = ftable[g5 ^ Subkey[SKIndex++]] ^ g4;
     printf("g6: 0x%" PRIx8 "\n",g6);
     return concat(g5,g6);
 }
@@ -104,13 +125,13 @@ void F(uint16_t r0, uint16_t r1, uint16_t* f0, uint16_t* f1) {
     uint16_t t1 = G(r1);
     printf("t0: 0x%" PRIx16 "\n",t0);
     printf("t1: 0x%" PRIx16 "\n",t1);
-    uint8_t subk1 = K();
-    uint8_t subk2 = K();
+    uint8_t subk1 = Subkey[SKIndex++];
+    uint8_t subk2 = Subkey[SKIndex++];
     uint32_t temp1 = (t0) + (2*t1) + concat(subk1,subk2);
     printf("temp1: 0x%" PRIx32 "\n",temp1);
     (*f0) = temp1 % 0x10000; // mod 2^16
-    uint8_t subk3 = K();
-    uint8_t subk4 = K();
+    uint8_t subk3 = Subkey[SKIndex++];
+    uint8_t subk4 = Subkey[SKIndex++];
     uint32_t temp2 = (2*t0) + (t1) + concat(subk3,subk4);
     printf("temp2: 0x%" PRIx32 "\n",temp2);
     (*f1) = temp2 % 0x10000; // mod 2^16
@@ -126,8 +147,11 @@ uint64_t convert(uint64_t block) {
     uint16_t f1 = 0x0000;
     Round = 0;
     KShift = 0;
-    while (Round < 2) {
+    while (Round < 16) {
+        // reset the SubkeyIndex
+        SKIndex = 0;
         printf("Beginning of Round: %i\n",Round);
+        generateSubkeys();
         F(R.word[3],R.word[2],&f0,&f1);
         // set up R for the next round
         Block nextR;
@@ -180,5 +204,5 @@ int main(int argc, char** argv) {
     uint64_t pt = 0xb3db233bb437c713;
     CurrentMode = decrypt;
     uint64_t ct = convert(pt);
-    //printf("Plaintext: 0x%" PRIx64 "\n",ct);
+    printf("Plaintext: 0x%" PRIx64 "\n",ct);
 }
