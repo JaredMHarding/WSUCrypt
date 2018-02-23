@@ -258,14 +258,13 @@ int main(int argc, char** argv) {
             for (int i = 0;i<PTBUFSIZE;i++) {
                 ptBuffer[i] = ptBlock.byte[PTBUFSIZE-1-i];
             }
+            // check for blocks with padding
+            int padding = 0;
+            if ((ptBlock.byte[0] < 0x08) && (ptBlock.byte[0] > 0x00)) {
+                padding = (int) ptBlock.byte[0];
+            }
             // now we can write the plaintext to the file
-            for (int i = 0;i<PTBUFSIZE;i++) {
-                // check for padding
-                if (ptBuffer[i] == '\0') {
-                    // I know, not very sophisticated
-                    break;
-                }
-                // ok to print now
+            for (int i = 0;i<(PTBUFSIZE-padding);i++) {
                 if (dprintf(ptfd,"%c",ptBuffer[i]) < 0) {
                     fprintf(stderr,"Error: %s\n",strerror(errno));
                     exit(1);

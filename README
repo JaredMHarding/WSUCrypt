@@ -7,7 +7,7 @@ I am submitting a coded version of the WSU-CRYPT algorithm in C.
 This is a block encryption algorithm with a 64-bit block and key size.
 All of the functions and subroutines I coded myself, except for the C library functions of course.
 
-This program should be able to encrypt any plaintext as long as there are not any NULL bytes besides the one at the very end.
+This program should be able to encrypt any plaintext.
 
 ----- LIST OF FILES IN THIS ARCHIVE -----
 
