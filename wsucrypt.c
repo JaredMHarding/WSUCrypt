@@ -14,7 +14,7 @@
 #define KEYBUFSIZE 16
 
 // THANK GOD FOR UNIONS
-// iterating through the word and byte arrays 0..4 and 0..8
+// iterating through the word and byte arrays 0..3 and 0..7
 // will start at LEAST SIGNIFICANT (right most)
 // and move to MOST SIGNIFICANT (left most)
 typedef union _block {
@@ -53,7 +53,6 @@ uint8_t ftable[256] = {
 0x08,0x77,0x11,0xbe,0x92,0x4f,0x24,0xc5,0x32,0x36,0x9d,0xcf,0xf3,0xa6,0xbb,0xac,
 0x5e,0x6c,0xa9,0x13,0x57,0x25,0xb5,0xe3,0xbd,0xa8,0x3a,0x01,0x05,0x59,0x2a,0x46};
 
-// This is the whitening function
 uint64_t whiten(uint64_t block) {
     return block ^ KEY.value;
 }
@@ -69,7 +68,7 @@ uint64_t rcs(uint64_t block, unsigned int shift) {
 uint16_t concat(uint8_t a, uint8_t b) {
     return (a << 8) | (b);
 }
-
+// this function calculates the subkeys for one round ahead of time
 uint8_t K() {
     uint8_t subkey;
     if (CurrentMode == encrypt) {
@@ -83,7 +82,6 @@ uint8_t K() {
     else if (CurrentMode == decrypt) {
         // KShift decreases by 1 before x is calculated
         KShift = (KShift+3) % 4;
-        printf("KShift: %i\n",KShift);
         // get byte, then right rotate
         unsigned int x = 4*(15-Round) + KShift;
         subkey = KEY.byte[x % 8];
@@ -93,7 +91,6 @@ uint8_t K() {
         fprintf(stderr,"Error: CurrentMode was not defined\n");
         exit(1);
     }
-    printf("subkey: 0x%" PRIx8 "\n",subkey);
     return subkey;
 }
 
@@ -116,37 +113,25 @@ void generateSubkeys() {
 
 uint16_t G(uint16_t w) {
     uint8_t g1 = (uint8_t) (w >> 8);
-    printf("g1: 0x%" PRIx8 "\n",g1);
     uint8_t g2 = (uint8_t) (w & 0x00ff);
-    printf("g2: 0x%" PRIx8 "\n",g2);
     uint8_t g3 = ftable[g2 ^ Subkey[SKIndex++]] ^ g1;
-    printf("g3: 0x%" PRIx8 "\n",g3);
     uint8_t g4 = ftable[g3 ^ Subkey[SKIndex++]] ^ g2;
-    printf("g4: 0x%" PRIx8 "\n",g4);
     uint8_t g5 = ftable[g4 ^ Subkey[SKIndex++]] ^ g3;
-    printf("g5: 0x%" PRIx8 "\n",g5);
     uint8_t g6 = ftable[g5 ^ Subkey[SKIndex++]] ^ g4;
-    printf("g6: 0x%" PRIx8 "\n",g6);
     return concat(g5,g6);
 }
 
 void F(uint16_t r0, uint16_t r1, uint16_t* f0, uint16_t* f1) {
     uint16_t t0 = G(r0);
     uint16_t t1 = G(r1);
-    printf("t0: 0x%" PRIx16 "\n",t0);
-    printf("t1: 0x%" PRIx16 "\n",t1);
     uint8_t subk1 = Subkey[SKIndex++];
     uint8_t subk2 = Subkey[SKIndex++];
     uint32_t temp1 = (t0) + (2*t1) + concat(subk1,subk2);
-    printf("temp1: 0x%" PRIx32 "\n",temp1);
     (*f0) = temp1 % 0x10000; // mod 2^16
     uint8_t subk3 = Subkey[SKIndex++];
     uint8_t subk4 = Subkey[SKIndex++];
     uint32_t temp2 = (2*t0) + (t1) + concat(subk3,subk4);
-    printf("temp2: 0x%" PRIx32 "\n",temp2);
     (*f1) = temp2 % 0x10000; // mod 2^16
-    printf("f0: 0x%" PRIx16 "\n",(*f0));
-    printf("f1: 0x%" PRIx16 "\n",(*f1));
 }
 // takes a block of plain text and turns it into cipher text or vice versa
 uint64_t convert(uint64_t block) {
@@ -160,7 +145,6 @@ uint64_t convert(uint64_t block) {
     while (Round < 16) {
         // reset the SubkeyIndex
         SKIndex = 0;
-        printf("Beginning of Round: %i\n",Round);
         generateSubkeys();
         F(R.word[3],R.word[2],&f0,&f1);
         // set up R for the next round
@@ -170,8 +154,6 @@ uint64_t convert(uint64_t block) {
         nextR.word[1] = R.word[3];
         nextR.word[0] = R.word[2];
         R.value = nextR.value;
-        printf("Block: 0x%" PRIx64 "\n",R.value);
-        printf("End of Round: %i\n\n",Round);
         Round++;
     }
     // undo the last swap
@@ -185,36 +167,11 @@ uint64_t convert(uint64_t block) {
 }
 
 int main(int argc, char** argv) {
-    /* Testing the inttypes.h print macros
-    Block n;
-    n.value = 0x123456789abcdef0;
-    printf("n.value == 0x%" PRIx64 "\n",n.value);
-    for (int i = 0;i<4;i++) {
-        printf("n.word[%i] == 0x%" PRIx16 "\n",i,n.word[i]);
-    }
-    for (int i = 0;i<8;i++) {
-        printf("n.byte[%i] == 0x%" PRIx8 "\n",i,n.byte[i]);
-    }
-    n.byte[0] = 0x55;
-    printf("n.value == 0x%" PRIx64 "\n",n.value);
-     */
-    /* Overflow Test
-    uint32_t a = 0x000fffff;
-    uint16_t b = 0xffff;
-    uint32_t c = a + b;
-    printf("c = 0x%" PRIx32 "\n",c);
-     */
-    /* Whitening Test
-    KEY.value = 0xabcdef0123456789;
-    Block pt;
-    pt.value = 0x0123456789abcdef;
-    printf("After whitening: 0x%" PRIx64 "\n",whiten(pt.value));
-     */
     if (argc != 2) {
         fprintf(stderr,"Usage: %s (encrypt OR decrypt)\n",argv[0]);
         exit(1);
     }
-    // either way it will open a key, so let's do that now
+    // either way it will have to open a key, so let's do that now
     // key file descriptor
     int keyfd = open("key.txt",O_RDONLY);
     if (keyfd == -1) {
@@ -228,10 +185,7 @@ int main(int argc, char** argv) {
         fprintf(stderr,"Not enough characters to create a key\n");
         exit(1);
     }
-    printf("Key: 0x%s\n",keyBuffer);
-    unsigned long long int keyval = strtoull(keyBuffer,NULL,16);
-    KEY.value = (uint64_t) keyval;
-    printf("Key.value: 0x%" PRIx64 "\n",KEY.value);
+    KEY.value = (uint64_t) strtoull(keyBuffer,NULL,16);
     // choose a conversion mode
     if (strncmp(argv[1],"encrypt",7) == 0) {
         CurrentMode = encrypt;
@@ -266,7 +220,6 @@ int main(int argc, char** argv) {
             }
             // now ptBlock is ready to be encrypted
             uint64_t ct = convert(ptBlock.value);
-            printf("Ciphertext: 0x%" PRIx64 "\n",ct);
             if (dprintf(ctfd,"%" PRIx64 "",ct) < 0) {
                 fprintf(stderr,"Error: %s\n",strerror(errno));
                 exit(1);
@@ -305,12 +258,11 @@ int main(int argc, char** argv) {
             for (int i = 0;i<PTBUFSIZE;i++) {
                 ptBuffer[i] = ptBlock.byte[PTBUFSIZE-1-i];
             }
-            printf("ptBlock: 0x%" PRIx64 "\n",ptBlock.value);
             // now we can write the plaintext to the file
             for (int i = 0;i<PTBUFSIZE;i++) {
                 // check for padding
                 if (ptBuffer[i] == '\0') {
-                    // not very sofisticated
+                    // I know, not very sophisticated
                     break;
                 }
                 // ok to print now
@@ -319,10 +271,6 @@ int main(int argc, char** argv) {
                     exit(1);
                 }
             }
-            // if (write(ptfd,&ptBuffer,PTBUFSIZE) < 0) {
-                // perror("write()");
-                // exit(1);
-            // }
         }
     }
     else {

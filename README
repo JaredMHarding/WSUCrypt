@@ -1,0 +1,46 @@
+Jared Harding
+jared.harding@wsu.edu
+
+----- DESCRIPTION -----
+
+I am submitting a coded version of the WSU-CRYPT algorithm in C.
+This is a block encryption algorithm with a 64-bit block and key size.
+All of the functions and subroutines I coded myself, except for the C library functions of course.
+
+This program should be able to encrypt any plaintext as long as there are not any NULL bytes besides the one at the very end.
+
+----- LIST OF FILES IN THIS ARCHIVE -----
+
+    wsucrypt.c
+        - The source code for the program
+    Makefile
+        - File for correctly assembling and compiling the "wsucrypt" program
+    README
+        - This file
+
+----- HOW TO USE THE PROGRAM -----
+
+After decompressing the tar file, run the "make" command to create an executable in the same directory. You may also enter "make clean" to remove all of the .o and executable files.
+
+To run the program, you may enter the following commands in the terminal...
+
+    $ ./wsucrypt encrypt
+    $ ./wsucrypt decrypt
+
+It may be "./wsucrypt.exe" if compiled on a Windows machine.
+
+----- NOTES -----
+
+Both encrypt and decrypt require there to be a file in the same directory called "key.txt" with the 64-bit key printed in hexadecimal (exactly 16 hex digits with no leading "0x").
+Encrypt expects plaintext to be in a file called "plaintext.txt", while decrypt expects a file called "ciphertext.txt" which has ciphertext printed in hexadecimal with no leading "0x". Both of these files will be in the same directory as the "wsucrypt" executable.
+This version of the algorithm will pad incomplete plaintext blocks using ANSI X.923 Byte Padding.
+
+----- ANSI X.923 BYTE PADDING -----
+
+In ANSI X.923 bytes filled with zeros are padded and the last byte defines the padding boundaries or the number of padded bytes.
+
+Example: In the following example the block size is 8 bytes, and padding is required for 4 bytes (in hexadecimal format)
+
+... | DD DD DD DD DD DD DD DD | DD DD DD DD 00 00 00 04 |
+
+Source: https://en.wikipedia.org/wiki/Padding_(cryptography)#ANSI_X.923
