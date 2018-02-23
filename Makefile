@@ -1,4 +1,4 @@
-CFLAGS=-c -std=c99 -Wall -pedantic
+CFLAGS=-c -std=gnu99 -Wall -pedantic
 
 wsucrypt: wsucrypt.o
 	gcc -g wsucrypt.o -o wsucrypt

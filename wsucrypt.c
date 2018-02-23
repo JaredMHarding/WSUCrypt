@@ -1,7 +1,17 @@
 #include <stdlib.h>
 #include <stdio.h>
+#include <errno.h>
 #include <inttypes.h>
+#include <unistd.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <string.h>
+
+#define PTBUFSIZE 8
+#define CTBUFSIZE 16
 #define SUBKEYARRAYSIZE 12
+#define KEYBUFSIZE 16
 
 // THANK GOD FOR UNIONS
 // iterating through the word and byte arrays 0..4 and 0..8
@@ -200,9 +210,123 @@ int main(int argc, char** argv) {
     pt.value = 0x0123456789abcdef;
     printf("After whitening: 0x%" PRIx64 "\n",whiten(pt.value));
      */
-    KEY.value = 0xabcdef0123456789;
-    uint64_t pt = 0xb3db233bb437c713;
-    CurrentMode = decrypt;
-    uint64_t ct = convert(pt);
-    printf("Plaintext: 0x%" PRIx64 "\n",ct);
+    if (argc != 2) {
+        fprintf(stderr,"Usage: %s (encrypt OR decrypt)\n",argv[0]);
+        exit(1);
+    }
+    // either way it will open a key, so let's do that now
+    // key file descriptor
+    int keyfd = open("key.txt",O_RDONLY);
+    if (keyfd == -1) {
+        perror("open(key.txt)");
+        exit(1);
+    }
+    // convert the hex characters to a numerical value
+    char keyBuffer[KEYBUFSIZE+1] = {0};
+    ssize_t keyBytesRead = read(keyfd,&keyBuffer,KEYBUFSIZE);
+    if (keyBytesRead != 16) {
+        fprintf(stderr,"Not enough characters to create a key\n");
+        exit(1);
+    }
+    printf("Key: 0x%s\n",keyBuffer);
+    unsigned long long int keyval = strtoull(keyBuffer,NULL,16);
+    KEY.value = (uint64_t) keyval;
+    printf("Key.value: 0x%" PRIx64 "\n",KEY.value);
+    // choose a conversion mode
+    if (strncmp(argv[1],"encrypt",7) == 0) {
+        CurrentMode = encrypt;
+        // plaintext file descriptor
+        int ptfd = open("plaintext.txt",O_RDONLY);
+        if (ptfd == -1) {
+            perror("open(plaintext.txt)");
+            exit(1);
+        }
+        // ciphertext file descriptor
+        int ctfd = open("ciphertext.txt",O_WRONLY|O_CREAT|O_TRUNC,S_IRWXU);
+        if (ctfd == -1) {
+            perror("open(ciphertext.txt)");
+            exit(1);
+        }
+        // ready to read and write
+        uint8_t ptBuffer[PTBUFSIZE] = {0};
+        ssize_t readBytes;
+        while ((readBytes = read(ptfd,&ptBuffer,PTBUFSIZE)) > 0) {
+            // pad a partial block using ANSI X.923 byte padding
+            if (readBytes < PTBUFSIZE) {
+                uint8_t padding = PTBUFSIZE - readBytes;
+                ptBuffer[PTBUFSIZE-1] = padding;
+                for (int i = PTBUFSIZE-2;i>(readBytes-1);i--) {
+                    ptBuffer[i] = 0x00;
+                }
+            }
+            // convert the ptBuffer to a Block type
+            Block ptBlock;
+            for (int i = 0;i<8;i++) {
+                ptBlock.byte[7-i] = ptBuffer[i];
+            }
+            // now ptBlock is ready to be encrypted
+            uint64_t ct = convert(ptBlock.value);
+            printf("Ciphertext: 0x%" PRIx64 "\n",ct);
+            if (dprintf(ctfd,"%" PRIx64 "",ct) < 0) {
+                fprintf(stderr,"Error: %s\n",strerror(errno));
+                exit(1);
+            }
+        }
+    }
+    else if (strncmp(argv[1],"decrypt",7) == 0) {
+        CurrentMode = decrypt;
+        // plaintext file descriptor
+        int ptfd = open("plaintext.txt",O_WRONLY|O_CREAT|O_TRUNC,S_IRWXU);
+        if (ptfd == -1) {
+            perror("open(plaintext.txt)");
+            exit(1);
+        }
+        // ciphertext file descriptor
+        int ctfd = open("ciphertext.txt",O_RDONLY);
+        if (ctfd == -1) {
+            perror("open(ciphertext.txt)");
+            exit(1);
+        }
+        // ready to read and write
+        char ctBuffer[CTBUFSIZE+1] = {0}; // +1 to always have that null byte
+        ssize_t readBytes;
+        while ((readBytes = read(ctfd,&ctBuffer,CTBUFSIZE)) > 0) {
+            if (readBytes != CTBUFSIZE) {
+                // readBytes should always be whole blocks for ciphertext
+                fprintf(stderr,"Error: corrupted ciphertext\n");
+                exit(1);
+            }
+            Block ctBlock;
+            ctBlock.value = (uint64_t) strtoull(ctBuffer,NULL,16);
+            Block ptBlock;
+            ptBlock.value = convert(ctBlock.value);
+            // convert the 64 bit plaintext into a set of 8 characters
+            char ptBuffer[PTBUFSIZE+1] = {0}; // +1 to hold that null byte
+            for (int i = 0;i<PTBUFSIZE;i++) {
+                ptBuffer[i] = ptBlock.byte[PTBUFSIZE-1-i];
+            }
+            printf("ptBlock: 0x%" PRIx64 "\n",ptBlock.value);
+            // now we can write the plaintext to the file
+            for (int i = 0;i<PTBUFSIZE;i++) {
+                // check for padding
+                if (ptBuffer[i] == '\0') {
+                    // not very sofisticated
+                    break;
+                }
+                // ok to print now
+                if (dprintf(ptfd,"%c",ptBuffer[i]) < 0) {
+                    fprintf(stderr,"Error: %s\n",strerror(errno));
+                    exit(1);
+                }
+            }
+            // if (write(ptfd,&ptBuffer,PTBUFSIZE) < 0) {
+                // perror("write()");
+                // exit(1);
+            // }
+        }
+    }
+    else {
+        fprintf(stderr,"Usage: %s (encrypt OR decrypt)\n",argv[0]);
+        exit(1);
+    }
 }
