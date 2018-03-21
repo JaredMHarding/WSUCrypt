@@ -220,7 +220,7 @@ int main(int argc, char** argv) {
             }
             // now ptBlock is ready to be encrypted
             uint64_t ct = convert(ptBlock.value);
-            if (dprintf(ctfd,"%" PRIx64 "",ct) < 0) {
+            if (dprintf(ctfd,"%016" PRIx64 "",ct) < 0) {
                 fprintf(stderr,"Error: %s\n",strerror(errno));
                 exit(1);
             }
